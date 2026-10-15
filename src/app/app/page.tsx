@@ -1,16 +1,18 @@
 "use client"
 import React, { useEffect, useState } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { mockOverviewData } from "@/data/mock"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import { ArrowUpRight, ShieldCheck, Zap, Activity, Target, Globe, ChevronDown, CheckSquare, Square, Smartphone, Monitor, Tablet } from "lucide-react"
+import { ArrowUpRight, ShieldCheck, Zap, Activity, Target, Globe, ChevronDown, CheckSquare, Square, Smartphone, Monitor, Tablet, AlertTriangle, Award, Search } from "lucide-react"
 import { DateRangeModal } from "@/components/ui/date-range-modal"
 
 export default function DashboardPage() {
   const [data, setData] = useState<any>(mockOverviewData)
   const [loadingRealData, setLoadingRealData] = useState(true)
+  const [gscWarning, setGscWarning] = useState<string | null>(null)
   
   // New States for Site Selection & Date Filter
   const [isHydrated, setIsHydrated] = useState(false)
@@ -23,6 +25,7 @@ export default function DashboardPage() {
   const [isCompareMode, setIsCompareMode] = useState(false)
   const [compareRange, setCompareRange] = useState("")
   const [customCompareDates, setCustomCompareDates] = useState<{start: string, end: string} | null>(null)
+  const [competitorGaps, setCompetitorGaps] = useState<any[]>([])
 
   // Hydrate date filters from localStorage
   useEffect(() => {
@@ -75,6 +78,18 @@ export default function DashboardPage() {
     localStorage.setItem('llm_selected_site', newSite)
   }
 
+  // Fetch DataForSEO Competitor Gap on mount
+  useEffect(() => {
+    fetch('/api/dataforseo?action=competitor_gap&target1=clutch.co&target2=truefirms.co')
+      .then(r => r.json())
+      .then(res => {
+        if (res.items && Array.isArray(res.items)) {
+          setCompetitorGaps(res.items.slice(0, 4));
+        }
+      })
+      .catch(console.error);
+  }, []);
+
     // Re-fetch data whenever date range or active project changes
   useEffect(() => {
     if (!isHydrated) return;
@@ -97,36 +112,46 @@ export default function DashboardPage() {
         
         const res = await fetch(url)
         const json = await res.json()
-        if (!json.error) {
-          setData({
-            ...mockOverviewData,
-            user: { name: 'Shubham' },
-            kpis: {
-              clicks: json.timeline?.reduce((acc: any, row: any) => acc + row.clicks, 0) || 0,
-              impressions: json.timeline?.reduce((acc: any, row: any) => acc + row.impressions, 0) || 0,
-              ctr: ((json.timeline?.reduce((acc: any, row: any) => acc + row.ctr, 0) || 0) / (json.timeline?.length || 1) * 100).toFixed(2),
-              position: ((json.timeline?.reduce((acc: any, row: any) => acc + row.position, 0) || 0) / (json.timeline?.length || 1)).toFixed(1)
-            },
-            trendData: json.timeline?.map((row: any, idx: number) => {
-              const compRow = (json.compTimeline && json.compTimeline[idx]) || null;
-              return {
-                date: (row.keys ? row.keys[0] : '2026-01-01').split('-').slice(1).join('-'),
-                clicks: row.clicks,
-                impressions: row.impressions,
-                ctr: row.ctr * 100,
-                position: row.position,
-                comp_clicks: compRow ? compRow.clicks : undefined,
-                comp_impressions: compRow ? compRow.impressions : undefined,
-                comp_ctr: compRow ? compRow.ctr * 100 : undefined,
-                comp_position: compRow ? compRow.position : undefined
-              };
-            }) || [],
-            ga4: json.ga4 || null,
-            opportunities: json.opportunities || null,
-            devices: json.devices || [],
-            countries: json.countries || []
-          } as any)
+        if (json.gscError) {
+          setGscWarning(json.gscError);
+        } else {
+          setGscWarning(null);
         }
+
+        const timeline = json.timeline || [];
+        const totalClicks = timeline.reduce((acc: any, row: any) => acc + (row.clicks || 0), 0);
+        const totalImpressions = timeline.reduce((acc: any, row: any) => acc + (row.impressions || 0), 0);
+        const avgCtr = totalImpressions > 0 ? ((totalClicks / totalImpressions) * 100).toFixed(2) : "0.00";
+        const avgPos = timeline.length > 0 ? (timeline.reduce((acc: any, row: any) => acc + (row.position || 0), 0) / timeline.length).toFixed(1) : "0.0";
+
+        setData({
+          ...mockOverviewData,
+          user: { name: 'Shubham' },
+          kpis: {
+            clicks: totalClicks,
+            impressions: totalImpressions,
+            ctr: avgCtr,
+            position: avgPos
+          },
+          trendData: timeline.map((row: any, idx: number) => {
+            const compRow = (json.compTimeline && json.compTimeline[idx]) || null;
+            return {
+              date: (row.keys ? row.keys[0] : '2026-01-01').split('-').slice(1).join('-'),
+              clicks: row.clicks || 0,
+              impressions: row.impressions || 0,
+              ctr: (row.ctr || 0) * 100,
+              position: row.position || 0,
+              comp_clicks: compRow ? compRow.clicks : undefined,
+              comp_impressions: compRow ? compRow.impressions : undefined,
+              comp_ctr: compRow ? compRow.ctr * 100 : undefined,
+              comp_position: compRow ? compRow.position : undefined
+            };
+          }),
+          ga4: json.ga4 || null,
+          opportunities: json.opportunities || null,
+          devices: json.devices || [],
+          countries: json.countries || []
+        } as any)
       } catch(e) {
         console.error(e)
       } finally {
@@ -327,6 +352,31 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* GSC Permission Warning Banner */}
+      {gscWarning && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-300 p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-sm">Google Search Console Permission Warning</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {gscWarning.includes("permission") 
+                  ? "Your connected Google account is not a verified owner for the currently selected property (e.g. unverified domain). Please select a verified site in Integrations or verify ownership in Search Console." 
+                  : gscWarning}
+              </p>
+            </div>
+          </div>
+          <Link href="/app/integrations">
+            <Button size="sm" className="bg-brand text-white hover:bg-brand/90 text-xs shrink-0 font-semibold gap-1.5 shadow-sm">
+              Change Property in Integrations
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </Button>
+          </Link>
+        </div>
+      )}
+
       {/* Top Overview Cards (Real GSC Data) - Clickable */}
       <div className="grid grid-cols-2 md:grid-cols-4 border border-slate-200 rounded-lg overflow-hidden shadow-sm bg-white">
         
@@ -341,7 +391,7 @@ export default function DashboardPage() {
             {activeMetrics.clicks ? <CheckSquare className="w-4 h-4 text-white" /> : <Square className="w-4 h-4 text-slate-400" />}
             <span className={`text-sm font-medium ${activeMetrics.clicks ? 'text-white' : 'text-slate-600'}`}>Total clicks</span>
           </div>
-          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : (data.kpis as any).clicks?.toLocaleString()}</div>
+          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : ((data?.kpis as any)?.clicks ?? 0).toLocaleString()}</div>
         </div>
 
         {/* Impressions Card */}
@@ -355,7 +405,7 @@ export default function DashboardPage() {
             {activeMetrics.impressions ? <CheckSquare className="w-4 h-4 text-white" /> : <Square className="w-4 h-4 text-slate-400" />}
             <span className={`text-sm font-medium ${activeMetrics.impressions ? 'text-white' : 'text-slate-600'}`}>Total impressions</span>
           </div>
-          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : (data.kpis as any).impressions?.toLocaleString()}</div>
+          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : ((data?.kpis as any)?.impressions ?? 0).toLocaleString()}</div>
         </div>
 
         {/* CTR Card */}
@@ -369,7 +419,7 @@ export default function DashboardPage() {
             {activeMetrics.ctr ? <CheckSquare className="w-4 h-4 text-white" /> : <Square className="w-4 h-4 text-slate-400" />}
             <span className={`text-sm font-medium ${activeMetrics.ctr ? 'text-white' : 'text-slate-600'}`}>Average CTR</span>
           </div>
-          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : `${(data.kpis as any).ctr}%`}</div>
+          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : `${(data?.kpis as any)?.ctr ?? "0.00"}%`}</div>
         </div>
 
         {/* Position Card */}
@@ -383,7 +433,7 @@ export default function DashboardPage() {
             {activeMetrics.position ? <CheckSquare className="w-4 h-4 text-white" /> : <Square className="w-4 h-4 text-slate-400" />}
             <span className={`text-sm font-medium ${activeMetrics.position ? 'text-white' : 'text-slate-600'}`}>Average position</span>
           </div>
-          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : (data.kpis as any).position}</div>
+          <div className="text-3xl font-semibold mt-3">{loadingRealData ? "..." : ((data?.kpis as any)?.position ?? "0.0")}</div>
         </div>
       </div>
 
@@ -638,6 +688,71 @@ export default function DashboardPage() {
               </div>
             </CardContent>
           </Card>
+        </div>
+      </div>
+
+      {/* Competitor Gap & High-Value Opportunities (DataForSEO) */}
+      <div className="mt-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900">Competitor Gap Intelligence</h2>
+            <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200 font-semibold gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse"></span>
+              DataForSEO Live • Clutch.co vs TrueFirms
+            </Badge>
+          </div>
+          <Link href="/app/seo">
+            <Button variant="outline" size="sm" className="text-xs gap-1.5 font-semibold text-slate-700 hover:text-purple-700">
+              Explore All 199+ Gap Keywords <ArrowUpRight className="w-3.5 h-3.5" />
+            </Button>
+          </Link>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {competitorGaps.length > 0 ? (
+            competitorGaps.map((item: any, idx: number) => (
+              <Card key={idx} className="border-slate-200/80 shadow-sm hover:shadow transition-shadow bg-white flex flex-col justify-between">
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-start gap-2 mb-1">
+                    <Badge variant={item.opportunity === 'High Opportunity' ? 'destructive' : item.opportunity === 'Quick Win' ? 'positive' : 'brand'} className="text-[10px]">
+                      {item.opportunity}
+                    </Badge>
+                    <span className="text-xs font-mono font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      ${item.cpc.toFixed(2)} CPC
+                    </span>
+                  </div>
+                  <CardTitle className="text-sm font-bold text-slate-900 truncate" title={item.keyword}>
+                    {item.keyword}
+                  </CardTitle>
+                  <CardDescription className="text-xs text-slate-500">
+                    Monthly Vol: <strong className="text-slate-800">{item.search_volume.toLocaleString()}</strong> searches
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0 pb-3">
+                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 flex items-center justify-between text-xs mt-2">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Clutch</span>
+                      <span className="font-bold text-purple-700">#{item.competitor_rank}</span>
+                    </div>
+                    <div className="h-6 w-px bg-slate-200"></div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">TrueFirms</span>
+                      <span className="font-bold text-slate-700">{item.your_rank ? `#${item.your_rank}` : '> 50'}</span>
+                    </div>
+                    <div className="h-6 w-px bg-slate-200"></div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">KD</span>
+                      <span className="font-bold text-slate-600">{item.keyword_difficulty}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <div className="col-span-4 p-6 bg-slate-50 rounded-xl border border-slate-200 text-center text-slate-500 text-sm">
+              Loading DataForSEO competitor insights...
+            </div>
+          )}
         </div>
       </div>
 

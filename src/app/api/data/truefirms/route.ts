@@ -318,13 +318,25 @@ export async function GET(request: Request) {
       }
     }
 
-    const results = await Promise.all(gscQueries);
-    const [timelineRes, queriesRes, pagesRes, devicesRes, countriesRes] = results;
+    let results: any[] = [];
+    let gscError: string | null = null;
+    try {
+      results = await Promise.all(gscQueries);
+    } catch (gscErr: any) {
+      console.warn("GSC query failed:", gscErr.message);
+      gscError = gscErr.message || 'Failed to query Google Search Console';
+    }
+
+    const timelineRes = results[0] || { data: { rows: [] } };
+    const queriesRes = results[1] || { data: { rows: [] } };
+    const pagesRes = results[2] || { data: { rows: [] } };
+    const devicesRes = results[3] || { data: { rows: [] } };
+    const countriesRes = results[4] || { data: { rows: [] } };
     let compTimelineRes = null, compQueriesRes = null, compPagesRes = null;
     if (compare) {
-      compTimelineRes = results[5];
-      compQueriesRes = results[6];
-      compPagesRes = results[7];
+      compTimelineRes = results[5] || null;
+      compQueriesRes = results[6] || null;
+      compPagesRes = results[7] || null;
     }
 
     // Process Devices
@@ -409,7 +421,10 @@ export async function GET(request: Request) {
       compGa4: compGa4Data,
       devices,
       countries,
-      opportunities
+      opportunities,
+      gscError,
+      requestedSite,
+      ga4PropertyId
     });
 
   } catch (error: any) {

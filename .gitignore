@@ -25,6 +25,7 @@
 *.pem
 test-ga4.js
 src/data/tokens.json
+.dataforseo_cache/
 
 # debug
 npm-debug.log*
